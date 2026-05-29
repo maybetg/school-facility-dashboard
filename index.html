@@ -172,9 +172,19 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:var
 .budget-panel label{display:block;font-size:12px;color:var(--muted);margin-bottom:8px;}
 input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;}
 .budget-display{font-size:30px;font-weight:800;color:var(--primary);text-align:center;margin:8px 0 4px;}
-.budget-hint{font-size:11.5px;color:var(--muted);text-align:center;}
+.budget-hint{font-size:11.5px;color:var(--muted);text-align:center;margin-bottom:10px;}
 .radio-group label{display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:8px;cursor:pointer;}
 .budget-stat{background:#fff;border-radius:8px;padding:10px 14px;margin-top:10px;font-size:12.5px;line-height:1.8;}
+.budget-num-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.budget-num-row input[type=number]{flex:1;padding:8px 12px;border:2px solid var(--accent);border-radius:8px;font-size:18px;font-weight:700;color:var(--primary);text-align:center;font-family:inherit;outline:none;}
+.budget-num-row input[type=number]::-webkit-inner-spin-button{opacity:1;height:28px;}
+.budget-step-btn{padding:7px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;white-space:nowrap;}
+.budget-step-btn:hover{background:#2563eb;}
+.budget-presets{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.budget-preset-btn{padding:4px 12px;background:#fff;border:1.5px solid var(--border);border-radius:100px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;}
+.budget-preset-btn:hover{border-color:var(--accent);color:var(--accent);}
+.budget-slider-wrap{margin-bottom:4px;}
+.budget-slider-labels{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);margin-top:2px;}
 
 /* ── MAP ── */
 #map{height:420px;border-radius:10px;overflow:hidden;}
@@ -473,9 +483,27 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;}
         <div class="budget-ctrl-grid">
           <div class="budget-panel">
             <label>총 배분 가능 예산 (억원)</label>
-            <input type="range" id="budgetSlider" min="30" max="600" step="10" value="150" oninput="updateBudget()">
+            <div class="budget-num-row">
+              <button class="budget-step-btn" onclick="stepBudget(-50)">－50</button>
+              <input type="number" id="budgetNumInput" value="150" min="30" max="9999" step="10"
+                     oninput="onBudgetNumInput()" onchange="onBudgetInputChange()">
+              <button class="budget-step-btn" onclick="stepBudget(50)">＋50</button>
+            </div>
+            <div class="budget-slider-wrap">
+              <input type="range" id="budgetSlider" min="30" max="600" step="10" value="150"
+                     oninput="onBudgetSliderInput()" onchange="updateBudget()">
+              <div class="budget-slider-labels"><span>30억</span><span>300억</span><span>600억</span></div>
+            </div>
             <div class="budget-display" id="budgetDisplay">150억원</div>
-            <div class="budget-hint">슬라이더를 조정하여 예산을 설정하세요</div>
+            <div class="budget-hint">슬라이더를 놓거나 숫자 입력 후 Tab/Enter 시 결과 업데이트</div>
+            <div class="budget-presets">
+              <span style="font-size:11px;color:var(--muted);margin-right:2px;">빠른선택:</span>
+              <button class="budget-preset-btn" onclick="setBudget(50)">50억</button>
+              <button class="budget-preset-btn" onclick="setBudget(100)">100억</button>
+              <button class="budget-preset-btn" onclick="setBudget(200)">200억</button>
+              <button class="budget-preset-btn" onclick="setBudget(300)">300억</button>
+              <button class="budget-preset-btn" onclick="setBudget(500)">500억</button>
+            </div>
           </div>
           <div class="budget-panel">
             <label>배분 방식 선택</label>
@@ -489,7 +517,10 @@ input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer;}
         </div>
       </div>
       <div class="card">
-        <div class="card-title"><div class="card-title-left"><i class="bi bi-list-ol"></i>학교별 예산 배분 결과</div></div>
+        <div class="card-title">
+          <div class="card-title-left"><i class="bi bi-list-ol"></i>긴급 학교 예산 배분 결과</div>
+          <span style="font-size:12px;color:var(--danger);font-weight:600;background:#fef2f2;padding:3px 10px;border-radius:100px;">🔴 우선순위 80점↑ 긴급 단계만 표시</span>
+        </div>
         <div style="overflow-x:auto"><table class="tbl" id="budgetTable"></table></div>
       </div>
     </div>
@@ -820,7 +851,20 @@ function generateRepairs(risk,aging){
   if(aging>=55)r.push(pool[6]);
   return[...new Set(r)].slice(0,4);
 }
-function estimateBudget(risk,aging){return Math.max(100,Math.round((risk*15+aging*8)/100)*100);}
+function estimateBudget(risk,aging,students,buildings,schoolType){
+  // 건물당 기준 공사비 (만원/동): 위험도에 비례
+  // risk 0 → 300만/동(유지관리) ~ risk 100 → 15,000만/동(전면개보수)
+  const basePerBuilding = Math.round(300 + (risk/100)*14700);
+  // 노후도 가중: 최대 80% 추가 부담
+  const agingBonus = 1.0 + (aging/100)*0.8;
+  // 학교급 가중: 고등학교 1.25배, 중학교 1.10배
+  const typeFactor = schoolType==='고등학교'?1.25:schoolType==='중학교'?1.10:1.0;
+  // 규모 가중: 학생 수 500명 기준 (최소 0.6배 ~ 최대 1.8배)
+  const sizeFactor = Math.max(0.6, Math.min(students/500, 1.8));
+  const raw = buildings * basePerBuilding * agingBonus * typeFactor * sizeFactor;
+  // 500만원 단위 반올림, 최소 2,000만원
+  return Math.max(2000, Math.round(raw/500)*500);
+}
 
 function getCoords(addr,code,sidoC){
   if(addr){
@@ -854,7 +898,8 @@ function processNeisRow(s,sidoC){
     address:s.ORG_RDNMA||'',students,buildingYear:yr,
     buildings:Math.max(2,Math.round(students/180)),
     safetyGrade,facilityRisk,aging,educationImpact,priorityScore,
-    repairs:generateRepairs(facilityRisk,aging),budgetNeeded:estimateBudget(facilityRisk,aging),
+    repairs:generateRepairs(facilityRisk,aging),
+    budgetNeeded:estimateBudget(facilityRisk,aging,students,Math.max(2,Math.round(students/180)),s.SCHUL_KND_SC_NM||'초등학교'),
     fondSc:s.FOND_SC_NM||'',region:s.JU_ORG_NM||'',
   };
 }
@@ -957,7 +1002,13 @@ function navigate(viewId){
   document.querySelector(`.nav-item[data-view="${viewId}"]`).classList.add('active');
   document.getElementById('pageTitle').textContent = pageTitles[viewId]||'';
   if(viewId==='mapview' && !mapReady) initMap();
-  if(viewId==='budget') updateBudget();
+  if(viewId==='budget'){
+    // 슬라이더-숫자입력 동기화 후 계산
+    const sv=document.getElementById('budgetSlider').value;
+    document.getElementById('budgetNumInput').value=sv;
+    document.getElementById('budgetDisplay').textContent=sv+'억원';
+    updateBudget();
+  }
 }
 
 document.querySelectorAll('.nav-item').forEach(el=>{
@@ -1227,8 +1278,49 @@ function updateRadar(){
 // ─────────────────────────────
 //  BUDGET SIMULATION
 // ─────────────────────────────
+
+// 슬라이더 드래그 중 → 표시만 업데이트 (계산 안 함 → 빠름)
+function onBudgetSliderInput(){
+  const val=document.getElementById('budgetSlider').value;
+  document.getElementById('budgetDisplay').textContent=val+'억원';
+  document.getElementById('budgetNumInput').value=val;
+}
+// 슬라이더에서 손 뗄 때 → 계산 실행 (onchange로 연결됨)
+
+// 숫자 직접 입력 중 → 슬라이더 위치만 동기화 (계산 안 함)
+function onBudgetNumInput(){
+  const val=Math.max(30,parseInt(document.getElementById('budgetNumInput').value)||30);
+  document.getElementById('budgetSlider').value=Math.min(600,val);
+  document.getElementById('budgetDisplay').textContent=val+'억원';
+}
+// 숫자 입력 확정(Tab/Enter/blur) → 계산 실행
+function onBudgetInputChange(){
+  let val=parseInt(document.getElementById('budgetNumInput').value)||150;
+  val=Math.max(30,val);
+  document.getElementById('budgetNumInput').value=val;
+  document.getElementById('budgetSlider').value=Math.min(600,val);
+  document.getElementById('budgetDisplay').textContent=val+'억원';
+  updateBudget();
+}
+// +/- 버튼 → 즉시 계산
+function stepBudget(delta){
+  const inp=document.getElementById('budgetNumInput');
+  let val=Math.max(30,(parseInt(inp.value)||150)+delta);
+  inp.value=val;
+  document.getElementById('budgetSlider').value=Math.min(600,val);
+  document.getElementById('budgetDisplay').textContent=val+'억원';
+  updateBudget();
+}
+// 빠른선택 버튼 → 즉시 계산
+function setBudget(val){
+  document.getElementById('budgetNumInput').value=val;
+  document.getElementById('budgetSlider').value=Math.min(600,val);
+  document.getElementById('budgetDisplay').textContent=val+'억원';
+  updateBudget();
+}
+
 function updateBudget(){
-  const total=parseInt(document.getElementById('budgetSlider').value);
+  const total=parseInt(document.getElementById('budgetNumInput').value)||150;
   document.getElementById('budgetDisplay').textContent=total+'억원';
   if(!allSchools.length){
     document.getElementById('budgetStat').textContent='시도를 선택하면 예산 시뮬레이션이 활성화됩니다.';
@@ -1237,7 +1329,15 @@ function updateBudget(){
   }
   const totalMan=total*10000;
   const type=document.querySelector('input[name="allocType"]:checked').value;
-  const sorted=[...allSchools].sort((a,b)=>b.priorityScore-a.priorityScore);
+  // 긴급 학교(80점↑)만 대상으로 배분
+  const urgent=allSchools.filter(s=>s.priorityScore>=80);
+  if(!urgent.length){
+    document.getElementById('budgetStat').innerHTML='<span style="color:var(--muted)">긴급 단계 학교가 없습니다.</span>';
+    document.getElementById('budgetTable').innerHTML='';
+    return;
+  }
+  const sorted=[...urgent].sort((a,b)=>b.priorityScore-a.priorityScore);
+  const totalNeeded=sorted.reduce((a,s)=>a+s.budgetNeeded,0);
 
   const allocs=sorted.map(s=>{
     let alloc;
@@ -1245,8 +1345,7 @@ function updateBudget(){
       const sum=sorted.reduce((a,x)=>a+x.priorityScore,0);
       alloc=Math.round(s.priorityScore/sum*totalMan);
     } else if(type==='need'){
-      const sum=sorted.reduce((a,x)=>a+x.budgetNeeded,0);
-      alloc=Math.round(s.budgetNeeded/sum*totalMan);
+      alloc=Math.round(s.budgetNeeded/totalNeeded*totalMan);
     } else {
       alloc=Math.round(totalMan/sorted.length);
     }
@@ -1254,26 +1353,33 @@ function updateBudget(){
   });
 
   const covered=allocs.filter(a=>a.shortage===0).length;
+  const totalNeededBil=Math.round(totalNeeded/10000);
+  const coverRatio=Math.round(totalMan/totalNeeded*100);
   document.getElementById('budgetStat').innerHTML=
-    `총 <b>${allSchools.length}</b>개교 중 <b style="color:var(--success)">${covered}개교</b> 예산 충족<br>
-     미충족: <b style="color:var(--danger)">${allSchools.length-covered}개교</b> &nbsp;|&nbsp;
-     총 필요: <b>${Math.round(allSchools.reduce((a,s)=>a+s.budgetNeeded,0)/10000)}억원</b>`;
+    `🔴 긴급 학교 <b>${sorted.length}</b>개교 대상 &nbsp;|&nbsp;
+     예산 충족: <b style="color:var(--success)">${covered}개교</b> &nbsp;|&nbsp;
+     미충족: <b style="color:var(--danger)">${sorted.length-covered}개교</b><br>
+     총 필요 예산: <b>${totalNeededBil}억원</b> &nbsp;|&nbsp;
+     예산 충당률: <b style="color:${coverRatio>=100?'var(--success)':'var(--warning)'}">${Math.min(coverRatio,100)}%</b>`;
 
   const tbl=document.getElementById('budgetTable');
   let h=`<thead><tr>
-    <th>순위</th><th>학교명</th><th>지역</th><th>위험단계</th>
+    <th>우선순위</th><th>학교명</th><th>지역</th><th>학교급</th>
     <th>필요 예산</th><th>배분 예산</th><th>부족 예산</th><th>충족 여부</th>
   </tr></thead><tbody>`;
-  allocs.forEach(a=>{
+  allocs.forEach((a,i)=>{
     const ok=a.shortage===0;
+    const budBil=(a.budgetNeeded/10000).toFixed(1);
+    const allocBil=(a.allocated/10000).toFixed(1);
+    const shortBil=ok?'–':((a.shortage/10000).toFixed(1)+'억원');
     h+=`<tr>
-      <td>${rankBadge(a.rank)}</td>
+      <td>${rankBadge(i+1)}</td>
       <td><strong>${a.name}</strong></td>
       <td style="font-size:12px">${a.district}</td>
-      <td>${levelBadge(a.priorityScore)}</td>
-      <td>${a.budgetNeeded.toLocaleString()}만원</td>
-      <td style="color:var(--success);font-weight:600">${a.allocated.toLocaleString()}만원</td>
-      <td style="color:${ok?'var(--muted)':'var(--danger)'};font-weight:600">${ok?'–':a.shortage.toLocaleString()+'만원'}</td>
+      <td style="font-size:12px">${a.schoolType}</td>
+      <td>${budBil}억원 <span style="font-size:10px;color:var(--muted)">(${a.budgetNeeded.toLocaleString()}만)</span></td>
+      <td style="color:var(--success);font-weight:600">${allocBil}억원</td>
+      <td style="color:${ok?'var(--muted)':'var(--danger)'};font-weight:600">${shortBil}</td>
       <td>${ok?'✅ 충족':'❌ 부족'}</td>
     </tr>`;
   });
@@ -1466,7 +1572,8 @@ function calcMultiyear(){
         <td style="font-size:12px">${s.schoolType}</td>
         <td>${sbar(s.priorityScore)}</td>
         <td>${levelBadge(s.priorityScore)}</td>
-        <td>${s.budgetNeeded.toLocaleString()}만원</td>
+        <td>${s.budgetNeeded>=10000?(s.budgetNeeded/10000).toFixed(1)+'억원':''}
+          <span style="font-size:10px;color:var(--muted)">(${s.budgetNeeded.toLocaleString()}만)</span></td>
       </tr>`;
     });
   });
@@ -1522,7 +1629,8 @@ function openDetail(id){
       <div class="info-cell"><div class="info-lbl">준공 연도</div><div class="info-val">${s.buildingYear}년 (경과 ${age}년)</div></div>
       <div class="info-cell"><div class="info-lbl">건물 동수</div><div class="info-val">${s.buildings}동</div></div>
       <div class="info-cell"><div class="info-lbl">안전진단 등급</div><div class="info-val">${gradeBadge(s.safetyGrade)} ${s.safetyGrade}등급</div></div>
-      <div class="info-cell"><div class="info-lbl">필요 예산 추산</div><div class="info-val" style="color:var(--danger)">${s.budgetNeeded.toLocaleString()}만원</div></div>
+      <div class="info-cell"><div class="info-lbl">필요 예산 추산</div><div class="info-val" style="color:var(--danger)">${s.budgetNeeded>=10000?(s.budgetNeeded/10000).toFixed(1)+'억원':''}
+        <span style="font-size:11px;color:var(--muted)">(${s.budgetNeeded.toLocaleString()}만원)</span></div></div>
       <div class="info-cell"><div class="info-lbl">주소</div><div class="info-val" style="font-size:12px">${s.address||s.district}</div></div>
     </div>
 
